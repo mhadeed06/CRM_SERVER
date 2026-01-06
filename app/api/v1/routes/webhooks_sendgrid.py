@@ -34,7 +34,7 @@ async def events(request: Request):
         event_time = datetime.utcfromtimestamp(ts) if ts else datetime.utcnow()
 
         update_email_event(
-            message_id=tracking_id,
+            tracking_id=tracking_id,
             event_type=event_type,
             event_payload=ev,
             event_time=event_time,

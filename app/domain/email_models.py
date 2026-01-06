@@ -30,7 +30,8 @@ from datetime import datetime
 
 class EmailRecipient(BaseModel):
     email: EmailStr
-    client_message_id: Optional[str] = Field(default=None, description="Unique ID from client for later DB updates")
+    client_message_id: str = Field(..., description="REQUIRED. Unique ID provided by client for webhook/DB correlation.")
+
 
 class SendEmailRequest(BaseModel):
     subject: str
@@ -38,21 +39,26 @@ class SendEmailRequest(BaseModel):
 
     # single recipient (optional)
     to_email: Optional[EmailStr] = None
-    client_message_id: Optional[str] = None
+    client_message_id: Optional[str] = Field(
+        default=None,
+        description="REQUIRED when using to_email (single send)."
+    )
 
-    # bulk recipients (optional)
-    recipients: Optional[List[EmailRecipient]] = None
+    # bulk send
+    recipients: List[EmailRecipient] = Field(
+        default_factory=list,
+        description="List of recipients for bulk send. Each recipient must include client_message_id."
+    )
 
 class RecipientSendResult(BaseModel):
     email: EmailStr
     tracking_id: str          # the ID you will use later to update DB
-    provider_message_id: Optional[str] = None  # optional if you store mapping later
 
 class SendEmailResponse(BaseModel):
     results: List[RecipientSendResult]
 
 class EmailStatus(BaseModel):
-    message_id: str
+    tracking_id: str
     to_email: EmailStr
     subject: str
     status: str

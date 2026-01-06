@@ -26,7 +26,6 @@
 #     return list_email_records()
 
 
-
 from fastapi import APIRouter, HTTPException
 from ....domain.email_models import SendEmailRequest, SendEmailResponse, RecipientSendResult
 from ....services.email_sendgrid import send_email_bulk
@@ -36,24 +35,34 @@ router = APIRouter(prefix="/email", tags=["Email"])
 
 @router.post("/send", response_model=SendEmailResponse)
 async def send(req: SendEmailRequest):
-    # Normalize recipients list
     recipients = []
 
+    # BULK
     if req.recipients:
+        missing = [r.email for r in req.recipients if not r.client_message_id]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"client_message_id is required for all recipients. Missing for: {missing}"
+            )
+
         for r in req.recipients:
             recipients.append({"email": r.email, "tracking_id": r.client_message_id})
 
+    # SINGLE
     elif req.to_email:
+        if not req.client_message_id:
+            raise HTTPException(
+                status_code=400,
+                detail="client_message_id is required when using to_email (single send)."
+            )
+
         recipients.append({"email": req.to_email, "tracking_id": req.client_message_id})
 
     else:
         raise HTTPException(status_code=400, detail="Provide either 'to_email' or 'recipients'.")
 
-    sent = send_email_bulk(
-        recipients=recipients,
-        subject=req.subject,
-        html=req.html,
-    )
+    sent = send_email_bulk(recipients=recipients, subject=req.subject, html=req.html)
 
     results = []
     for email, tracking_id in sent:

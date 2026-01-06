@@ -64,7 +64,11 @@ def send_email_bulk(
 
     for r in recipients:
         email = r["email"]
-        tracking_id = r.get("tracking_id") or str(uuid.uuid4())
+        tracking_id = r.get("tracking_id")
+        if not tracking_id:
+            raise ValueError("tracking_id is required for every recipient")
+
+
 
         personalizations.append({
             "to": [{"email": email}],
