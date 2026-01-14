@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from datetime import datetime
-from ..domain.email_models import EmailStatus
-from ..domain.email_models import EmailRecord
+from app.domain.email_models import EmailRecord
+from app.domain.email_models import EmailStatus
 
 # In-memory store for demo (replace with DB later)
 EMAILS: Dict[str, EmailRecord] = {}

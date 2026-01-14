@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Response
 from datetime import datetime
-from ....store.memory_store import update_email_event
+from app.store.memory_store import update_email_event
 import logging
 
 router = APIRouter(prefix="/webhooks/sendgrid", tags=["Webhooks"])

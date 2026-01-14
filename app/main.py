@@ -1,11 +1,10 @@
 from fastapi import FastAPI
 
-from .api.v1.routes.email import router as email_router
-from .api.v1.routes.webhooks_sendgrid import router as sendgrid_webhook_router
-
-from .api.v1.routes.sms import router as sms_router
-from .api.v1.routes.webhooks_telnyx import router as telnyx_webhook_router
-from .api.v1.routes.redirect import router as redirect_router
+from app.api.v1.routes.email import router as email_router
+from app.api.v1.routes.webhooks_sendgrid import router as sendgrid_webhook_router
+from app.api.v1.routes.sms import router as sms_router
+from app.api.v1.routes.webhooks_telnyx import router as telnyx_webhook_router
+from app.api.v1.routes.redirect import router as redirect_router
 
 app = FastAPI(title="Comms Service ")
 

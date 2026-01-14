@@ -9,6 +9,7 @@ async def telnyx_events(request: Request):
     payload = await request.json()
 
     data = payload.get("data", {}) or {}
+    print("TELNYX WEBHOOK PAYLOAD:", payload)
     event_type = data.get("event_type")
 
     message = data.get("payload", {}) or {}

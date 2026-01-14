@@ -12,4 +12,5 @@ class Settings:
     PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "")
 
 
-settings = Settings()
+config = Settings()
+
