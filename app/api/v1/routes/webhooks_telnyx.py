@@ -18,7 +18,17 @@ async def telnyx_events(request: Request):
     tracking_id = tags[0] if isinstance(tags, list) and len(tags) > 0 else None
 
     telnyx_message_id = message.get("id")
+    if event_type == "message.received":
+        from_phone = message.get("from")
+        to_phone = message.get("to")
+        text = message.get("text")
 
+        logger.info(
+            "SMS INBOUND | from=%s | to=%s | text=%s",
+            from_phone,
+            to_phone,
+            text
+        )
     # 🔎 extra debug
     logger.info("TELNYX event_type=%s message_id=%s tags=%s", event_type, telnyx_message_id, tags)
 

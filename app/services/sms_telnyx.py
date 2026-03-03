@@ -65,7 +65,11 @@ def send_sms_bulk(recipients: List[Dict[str, str]]) -> List[Tuple[str, str]]:
             "tags": [r["tracking_id"]],
         }
 
-        print("FINAL SMS TEXT:", r["text"])
+        print("SMS OUTBOUND | phone=%s | tracking_id=%s | text=%s" % (
+            r["phone"],
+            r["tracking_id"],
+            r["text"]
+        ))
 
         resp = requests.post(TELNYX_URL, json=payload, headers=headers)
 
