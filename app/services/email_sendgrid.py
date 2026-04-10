@@ -53,6 +53,9 @@ def send_email_bulk(
     if not recipients:
         raise RuntimeError("Recipients list cannot be empty")
 
+    if len(recipients) > 1000:
+        raise RuntimeError("SendGrid allows max 1000 recipients per API call")
+
     content = []
 
     if text:

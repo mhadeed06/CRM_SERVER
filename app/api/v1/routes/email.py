@@ -19,14 +19,22 @@ async def send(req: SendEmailRequest):
             html=req.html,
             text=req.text,
             from_email=req.from_email,
-            recipients=[r.dict() for r in req.recipients],
+            recipients=[r.model_dump() for r in req.recipients],
         )
     except Exception as e:
-        return {
-        "status": False,
-        "error": str(e),
-        "timestamp": datetime.utcnow()
-    }
+        return SendEmailResponse(
+            status=False,
+            timestamp=datetime.utcnow(),
+            results=[
+                RecipientSendResult(
+                    to_email=r.to_email,
+                    thread_id=r.thread_id,
+                    message_id=r.message_id,
+                    status=f"error: {str(e)}",
+                )
+                for r in req.recipients
+            ],
+        )
 
     results = []
 
@@ -43,5 +51,5 @@ async def send(req: SendEmailRequest):
     return SendEmailResponse(
         status=True,
         timestamp=datetime.utcnow(),
-        results=results
+        results=results,
     )

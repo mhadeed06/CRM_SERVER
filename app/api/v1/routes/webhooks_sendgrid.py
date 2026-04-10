@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Request, Response
-from datetime import datetime
-import logging
+import asyncio
 import re
+import logging
+from datetime import datetime
 from email.parser import Parser
 from email.policy import default
+
+from fastapi import APIRouter, Request, Response
 
 from app.utils.geoip import get_region_from_ip
 from app.services.crm_client import (
@@ -18,27 +20,6 @@ logger = logging.getLogger("uvicorn")
 # ==========================================================
 # Utility
 # ==========================================================
-
-def normalize_msg_id(mid: str | None) -> str | None:
-    if not mid:
-        return None
-    return mid.strip().lstrip("<").rstrip(">")
-
-
-# ==========================================================
-# SENDGRID EVENT WEBHOOK
-# ==========================================================
-import json
-from fastapi import APIRouter, Request, Response
-from datetime import datetime
-import logging
-
-from app.utils.geoip import get_region_from_ip
-from app.services.crm_client import send_email_event_to_crm
-
-router = APIRouter(prefix="/webhooks/sendgrid", tags=["Webhooks"])
-logger = logging.getLogger("uvicorn")
-
 
 def normalize_msg_id(mid: str | None) -> str | None:
     if not mid:
@@ -61,6 +42,8 @@ async def events(request: Request):
 
     ALLOWED_EVENT_TYPES = {"delivered", "open", "click"}
 
+    crm_tasks = []
+
     for ev in payload:
         et = ev.get("event")
         if et in ALLOWED_EVENT_TYPES:
@@ -76,7 +59,7 @@ async def events(request: Request):
         event_type = ev.get("event")
         timestamp = ev.get("timestamp")
 
-        if not thread_id or not message_id:
+        if thread_id is None or message_id is None:
             logger.info("⚠ Skipping event without thread/message id: %s", ev)
             continue
 
@@ -129,7 +112,7 @@ async def events(request: Request):
             "eventType": event_type,
             "ipAddress": ip or "",
             "region": region_str or "",
-            "rawEvent": str(ev),   
+            "rawEvent": str(ev),
         }
 
         if event_type == "delivered":
@@ -139,8 +122,17 @@ async def events(request: Request):
         elif event_type == "click":
             logger.info(f"[CLICK] {crm_event_payload}")
 
-        status, body = await send_email_event_to_crm(crm_event_payload)
-        logger.info("➡ CRM EVENT RESULT: status=%s body=%s", status, body)
+        crm_tasks.append(send_email_event_to_crm(crm_event_payload))
+
+    # fire all CRM calls concurrently instead of one-by-one
+    if crm_tasks:
+        results = await asyncio.gather(*crm_tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error("➡ CRM EVENT ERROR: %r", result)
+            else:
+                status, body = result
+                logger.info("➡ CRM EVENT RESULT: status=%s body=%s", status, body)
 
     logger.info("📩 ===== END SENDGRID EVENTS =====")
     return Response(status_code=200)
