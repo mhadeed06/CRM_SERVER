@@ -1,10 +1,12 @@
 import logging
+import time
+
 import httpx
+
 from app.core.config import CONFIG
 
-logger = logging.getLogger("crm_client")
+logger = logging.getLogger(__name__)
 
-# Common headers using your env token
 COMMON_HEADERS = {
     "Authorization": f"Bearer {CONFIG.CRM_TOKEN}",
     "Content-Type": "application/json",
@@ -12,64 +14,79 @@ COMMON_HEADERS = {
 
 
 async def send_email_event_to_crm(event_payload: dict) -> tuple[int | None, str]:
-    """
-    Sends outbound SendGrid event (delivered/open/click/etc.) to CRM.
-    Body format required by CRM:
-    {
-        "emailEvent": { ... }
-    }
-    """
+    """Forward a SendGrid outbound event (delivered/open/click) to CRM."""
     if not CONFIG.CRM_BASE_URL or not CONFIG.CRM_EVENT_ENDPOINT:
-        logger.error("❌ CRM endpoints not configured")
+        logger.error("crm_event not_configured")
         return None, "CRM URL not configured"
 
     url = CONFIG.CRM_BASE_URL + CONFIG.CRM_EVENT_ENDPOINT
     body = {"emailEvent": event_payload}
+    event_type = event_payload.get("eventType")
+    thread_seq = event_payload.get("threadSeqNum")
+    msg_seq = event_payload.get("messageSeqNum")
 
+    start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, json=body, headers=COMMON_HEADERS)
-
-        logger.info("CRM EVENT -> %s | %s", resp.status_code, resp.text)
-        return resp.status_code, resp.text
-
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
         logger.error(
-            "❌ CRM EVENT ERROR: url=%s body=%s error=%r",
-            url,
-            body,
-            e,
+            "crm_event request_exception event=%s thread=%s message=%s duration_ms=%d error=%r",
+            event_type, thread_seq, msg_seq, duration_ms, e,
         )
         return None, str(e)
 
+    duration_ms = int((time.perf_counter() - start) * 1000)
+
+    if 200 <= resp.status_code < 300:
+        logger.debug(
+            "crm_event ok event=%s thread=%s message=%s status=%s duration_ms=%d",
+            event_type, thread_seq, msg_seq, resp.status_code, duration_ms,
+        )
+    else:
+        logger.error(
+            "crm_event bad_status event=%s thread=%s message=%s status=%s duration_ms=%d body=%s",
+            event_type, thread_seq, msg_seq, resp.status_code, duration_ms,
+            resp.text[:500],
+        )
+
+    return resp.status_code, resp.text
+
 
 async def send_inbound_email_to_crm(email_payload: dict) -> tuple[int | None, str]:
-    """
-    Sends inbound email (reply) to CRM.
-    Body format required by CRM:
-    {
-        "email": { ... }
-    }
-    """
+    """Forward an inbound reply email to CRM."""
     if not CONFIG.CRM_BASE_URL or not CONFIG.CRM_INBOUND_ENDPOINT:
-        logger.error("❌ CRM inbound endpoint not configured")
+        logger.error("crm_inbound not_configured")
         return None, "CRM inbound URL not configured"
 
     url = CONFIG.CRM_BASE_URL + CONFIG.CRM_INBOUND_ENDPOINT
     body = {"email": email_payload}
+    message_id = email_payload.get("sendgridMessageId")
 
+    start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, json=body, headers=COMMON_HEADERS)
-
-        logger.info("CRM INBOUND -> %s | %s", resp.status_code, resp.text)
-        return resp.status_code, resp.text
-
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
         logger.error(
-            "❌ CRM INBOUND ERROR: url=%s body=%s error=%r",
-            url,
-            body,
-            e,
+            "crm_inbound request_exception message_id=%s duration_ms=%d error=%r",
+            message_id, duration_ms, e,
         )
         return None, str(e)
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+
+    if 200 <= resp.status_code < 300:
+        logger.debug(
+            "crm_inbound ok message_id=%s status=%s duration_ms=%d",
+            message_id, resp.status_code, duration_ms,
+        )
+    else:
+        logger.error(
+            "crm_inbound bad_status message_id=%s status=%s duration_ms=%d body=%s",
+            message_id, resp.status_code, duration_ms, resp.text[:500],
+        )
+
+    return resp.status_code, resp.text

@@ -1,6 +1,12 @@
-from typing import Dict, Optional, Tuple, List
+import logging
+import time
+from typing import Dict, List, Optional, Tuple
+
 from sendgrid import SendGridAPIClient
+
 from app.core.config import CONFIG
+
+logger = logging.getLogger(__name__)
 
 reply_to_email = CONFIG.SENDGRID_REPLY_TO_EMAIL
 
@@ -105,14 +111,31 @@ def send_email_bulk(
 
     sg = SendGridAPIClient(CONFIG.SENDGRID_API_KEY)
 
+    start = time.perf_counter()
     try:
         resp = sg.client.mail.send.post(request_body=payload)
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "sendgrid_api request_failed recipients=%d duration_ms=%d error=%r",
+            len(recipients), duration_ms, e,
+        )
         raise RuntimeError(f"SendGrid request failed: {str(e)}")
 
+    duration_ms = int((time.perf_counter() - start) * 1000)
     sendgrid_message_id = resp.headers.get("X-Message-Id")
 
     if resp.status_code not in (200, 202):
+        logger.error(
+            "sendgrid_api bad_status recipients=%d status=%s duration_ms=%d body=%s",
+            len(recipients), resp.status_code, duration_ms,
+            str(resp.body)[:500] if resp.body else "",
+        )
         raise RuntimeError(f"SendGrid error: {resp.status_code} {resp.body}")
 
-    return True, sendgrid_message_id    
+    logger.info(
+        "sendgrid_api ok recipients=%d status=%s message_id=%s duration_ms=%d",
+        len(recipients), resp.status_code, sendgrid_message_id, duration_ms,
+    )
+
+    return True, sendgrid_message_id

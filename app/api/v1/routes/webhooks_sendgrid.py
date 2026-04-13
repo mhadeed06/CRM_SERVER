@@ -1,25 +1,24 @@
 import asyncio
-import re
 import logging
+import re
+import time
 from datetime import datetime
 from email.parser import Parser
 from email.policy import default
 
 from fastapi import APIRouter, Request, Response
 
-from app.utils.geoip import get_region_from_ip
 from app.services.crm_client import (
     send_email_event_to_crm,
     send_inbound_email_to_crm,
 )
+from app.utils.geoip import get_region_from_ip
 
 router = APIRouter(prefix="/webhooks/sendgrid", tags=["Webhooks"])
-logger = logging.getLogger("uvicorn")
+logger = logging.getLogger(__name__)
 
+ALLOWED_EVENT_TYPES = {"delivered", "open", "click"}
 
-# ==========================================================
-# Utility
-# ==========================================================
 
 def normalize_msg_id(mid: str | None) -> str | None:
     if not mid:
@@ -29,68 +28,59 @@ def normalize_msg_id(mid: str | None) -> str | None:
 
 @router.post("/events")
 async def events(request: Request):
+    start = time.perf_counter()
 
-    payload = await request.json()
-
-    if not isinstance(payload, list):
-        logger.warning("❌ Invalid SendGrid events payload format")
+    try:
+        payload = await request.json()
+    except Exception as e:
+        logger.error("sendgrid_events parse_error error=%r", e)
         return Response(status_code=200)
 
-    logger.info("📩 ===== SENDGRID EVENTS RECEIVED =====")
-    buckets = {"delivered": [], "open": [], "click": []}
+    if not isinstance(payload, list):
+        logger.warning("sendgrid_events invalid_payload type=%s", type(payload).__name__)
+        return Response(status_code=200)
 
-
-    ALLOWED_EVENT_TYPES = {"delivered", "open", "click"}
-
+    total = len(payload)
+    counts = {"delivered": 0, "open": 0, "click": 0}
+    skipped_no_ids = 0
+    skipped_other_type = 0
     crm_tasks = []
 
     for ev in payload:
-        et = ev.get("event")
-        if et in ALLOWED_EVENT_TYPES:
-            buckets[et].append(ev)
-        else:
-            logger.debug("Ignoring event type=%s", et)
-
+        event_type = ev.get("event")
         custom_args = ev.get("custom_args") or {}
-
-        # try custom_args first, then top-level
         thread_id = custom_args.get("thread_id") or ev.get("thread_id")
         message_id = custom_args.get("message_id") or ev.get("message_id")
-        event_type = ev.get("event")
-        timestamp = ev.get("timestamp")
 
         if thread_id is None or message_id is None:
-            logger.info("⚠ Skipping event without thread/message id: %s", ev)
+            skipped_no_ids += 1
+            logger.debug(
+                "sendgrid_event skipped reason=missing_ids event=%s email=%s",
+                event_type, ev.get("email"),
+            )
             continue
 
         if event_type not in ALLOWED_EVENT_TYPES:
-            logger.info(f"[IGNORED] {event_type} for {thread_id}/{message_id}")
+            skipped_other_type += 1
             continue
 
-        occurred_at = (
-            datetime.utcfromtimestamp(timestamp).isoformat()
-            if timestamp else None
-        )
+        counts[event_type] += 1
 
         email = ev.get("email")
         ip = ev.get("ip")
 
-        # our geo function returns a dict — convert to a single string
         region_info = get_region_from_ip(ip) if ip else None
         if isinstance(region_info, dict):
             region_str = ", ".join(
-                part
-                for part in [
+                part for part in [
                     region_info.get("city"),
                     region_info.get("region"),
                     region_info.get("country"),
-                ]
-                if part
+                ] if part
             ) or None
         else:
             region_str = region_info
 
-        sg_message_id = ev.get("sg_message_id")
         smtp_id = normalize_msg_id(ev.get("smtp-id"))
 
         try:
@@ -103,7 +93,6 @@ async def events(request: Request):
         except Exception:
             msg_seq = 0
 
-        # build exactly what CRM expects
         crm_event_payload = {
             "toEmail": email,
             "threadSeqNum": thread_seq,
@@ -115,40 +104,51 @@ async def events(request: Request):
             "rawEvent": str(ev),
         }
 
-        if event_type == "delivered":
-            logger.info(f"[DELIVERED] {crm_event_payload}")
-        elif event_type == "open":
-            logger.info(f"[OPEN] {crm_event_payload}")
-        elif event_type == "click":
-            logger.info(f"[CLICK] {crm_event_payload}")
-
         crm_tasks.append(send_email_event_to_crm(crm_event_payload))
 
-    # fire all CRM calls concurrently instead of one-by-one
+    logger.info(
+        "sendgrid_events received total=%d delivered=%d open=%d click=%d skipped_no_ids=%d skipped_other_type=%d",
+        total, counts["delivered"], counts["open"], counts["click"],
+        skipped_no_ids, skipped_other_type,
+    )
+
+    crm_success = 0
+    crm_failed = 0
     if crm_tasks:
         results = await asyncio.gather(*crm_tasks, return_exceptions=True)
-        for i, result in enumerate(results):
+        for result in results:
             if isinstance(result, Exception):
-                logger.error("➡ CRM EVENT ERROR: %r", result)
+                crm_failed += 1
+                logger.error("crm_forward_event exception=%r", result)
             else:
                 status, body = result
-                logger.info("➡ CRM EVENT RESULT: status=%s body=%s", status, body)
+                if status and 200 <= status < 300:
+                    crm_success += 1
+                else:
+                    crm_failed += 1
+                    logger.error(
+                        "crm_forward_event failed status=%s body=%s",
+                        status, (body or "")[:500],
+                    )
 
-    logger.info("📩 ===== END SENDGRID EVENTS =====")
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    logger.info(
+        "sendgrid_events processed total=%d crm_success=%d crm_failed=%d duration_ms=%d",
+        total, crm_success, crm_failed, duration_ms,
+    )
+
     return Response(status_code=200)
-# ==========================================================
-# SENDGRID INBOUND PARSE WEBHOOK
-# ==========================================================
+
 
 @router.post("/inbound")
 async def inbound_email(request: Request):
+    start = time.perf_counter()
 
     form_data = await request.form()
 
     headers_raw = form_data.get("headers", "")
     parsed_headers = Parser(policy=default).parsestr(headers_raw)
 
-    # SMTP message-id we will send as sendgridMessageId (threading id)
     smtp_message_id = normalize_msg_id(parsed_headers.get("Message-ID"))
     in_reply_to = normalize_msg_id(parsed_headers.get("In-Reply-To"))
 
@@ -158,22 +158,18 @@ async def inbound_email(request: Request):
     html_body = form_data.get("html")
     to_email = form_data.get("to")
 
-    # Extract clean email from "Name <email@x.com>"
     email_match = re.search(r"<(.+?)>", from_raw or "")
     from_email = email_match.group(1) if email_match else from_raw
 
-    logger.info("📥 ===== INBOUND EMAIL RECEIVED =====")
-    logger.info("From            : %s", from_email)
-    logger.info("To              : %s", to_email)
-    logger.info("Subject         : %s", subject)
-    logger.info("SMTP Message ID : %s", smtp_message_id)
-    logger.info("In-Reply-To     : %s", in_reply_to)
-    logger.info("Text Length     : %d", len(text_body) if text_body else 0)
-    logger.info("HTML Length     : %d", len(html_body) if html_body else 0)
+    logger.info(
+        "inbound_email received from=%s to=%s message_id=%s in_reply_to=%s text_len=%d html_len=%d",
+        from_email, to_email, smtp_message_id, in_reply_to,
+        len(text_body) if text_body else 0,
+        len(html_body) if html_body else 0,
+    )
 
-    # Build payload for CRM inbound API
     crm_inbound_payload = {
-        "sendgridMessageId": smtp_message_id,   # threading id
+        "sendgridMessageId": smtp_message_id,
         "inReplyTo": in_reply_to,
         "fromEmail": from_email,
         "toEmail": to_email,
@@ -182,10 +178,18 @@ async def inbound_email(request: Request):
         "htmlBody": html_body,
     }
 
-    # Send to CRM
-    await send_inbound_email_to_crm(crm_inbound_payload)
+    status, body = await send_inbound_email_to_crm(crm_inbound_payload)
 
-    logger.info("📥 Sent inbound email to CRM: %s", crm_inbound_payload)
-    logger.info("📥 ===== END INBOUND EMAIL =====")
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    if status and 200 <= status < 300:
+        logger.info(
+            "inbound_email forwarded message_id=%s status=%s duration_ms=%d",
+            smtp_message_id, status, duration_ms,
+        )
+    else:
+        logger.error(
+            "inbound_email forward_failed message_id=%s status=%s body=%s duration_ms=%d",
+            smtp_message_id, status, (body or "")[:500], duration_ms,
+        )
 
     return Response(status_code=200)

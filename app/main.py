@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 
+from app.core.logging_config import setup_logging
+
+setup_logging()
+
 from app.api.v1.routes.email import router as email_router
 from app.api.v1.routes.webhooks_sendgrid import router as sendgrid_webhook_router
 from app.api.v1.routes.sms import router as sms_router

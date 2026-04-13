@@ -1,14 +1,16 @@
 import logging
+
 import geoip2.database
 
-logger = logging.getLogger("uvicorn")
+logger = logging.getLogger(__name__)
 
 DB_PATH = "app/data/GeoLite2-City.mmdb"
 
 try:
     reader = geoip2.database.Reader(str(DB_PATH))
-except Exception:
-    logger.warning("GeoIP database not found at %s — IP lookups will return empty", DB_PATH)
+    logger.info("geoip loaded path=%s", DB_PATH)
+except Exception as e:
+    logger.warning("geoip load_failed path=%s error=%r", DB_PATH, e)
     reader = None
 
 

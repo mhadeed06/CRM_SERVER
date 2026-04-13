@@ -1,12 +1,17 @@
-import requests
-from typing import List, Dict, Tuple
+import logging
+import time
+from typing import Dict, List, Tuple
 from urllib.parse import quote_plus
+
+import requests
 
 from app.core.config import CONFIG
 from app.domain.sms_models import SendSMSRequest
 
+logger = logging.getLogger(__name__)
+
 TELNYX_URL = "https://api.telnyx.com/v2/messages"
-base=CONFIG.PUBLIC_BASE_URL
+base = CONFIG.PUBLIC_BASE_URL
 
 
 def _build_tracked_link(tracking_id: str, link_url: str) -> str:
@@ -65,16 +70,31 @@ def send_sms_bulk(recipients: List[Dict[str, str]]) -> List[Tuple[str, str]]:
             "tags": [r["tracking_id"]],
         }
 
-        print("SMS OUTBOUND | phone=%s | tracking_id=%s | text=%s" % (
-            r["phone"],
-            r["tracking_id"],
-            r["text"]
-        ))
+        start = time.perf_counter()
+        try:
+            resp = requests.post(TELNYX_URL, json=payload, headers=headers, timeout=10)
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            logger.error(
+                "telnyx_api request_exception phone=%s tracking_id=%s duration_ms=%d error=%r",
+                r["phone"], r["tracking_id"], duration_ms, e,
+            )
+            raise RuntimeError(f"Telnyx request failed: {str(e)}")
 
-        resp = requests.post(TELNYX_URL, json=payload, headers=headers)
+        duration_ms = int((time.perf_counter() - start) * 1000)
 
         if resp.status_code not in (200, 202):
+            logger.error(
+                "telnyx_api bad_status phone=%s tracking_id=%s status=%s duration_ms=%d body=%s",
+                r["phone"], r["tracking_id"], resp.status_code, duration_ms,
+                resp.text[:500],
+            )
             raise RuntimeError(f"Telnyx error: {resp.status_code} {resp.text}")
+
+        logger.info(
+            "telnyx_api ok phone=%s tracking_id=%s status=%s text_len=%d duration_ms=%d",
+            r["phone"], r["tracking_id"], resp.status_code, len(r["text"]), duration_ms,
+        )
 
         results.append((r["phone"], r["tracking_id"]))
 
