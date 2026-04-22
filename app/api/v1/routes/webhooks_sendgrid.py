@@ -8,6 +8,7 @@ from email.policy import default
 
 from fastapi import APIRouter, Request, Response
 
+from app.services.auth_client import get_auth_token
 from app.services.crm_client import (
     send_email_event_to_crm,
     send_inbound_email_to_crm,
@@ -17,13 +18,39 @@ from app.utils.geoip import get_region_from_ip
 router = APIRouter(prefix="/webhooks/sendgrid", tags=["Webhooks"])
 logger = logging.getLogger(__name__)
 
-ALLOWED_EVENT_TYPES = {"delivered", "open", "click"}
+ALLOWED_EVENT_TYPES = {"delivered", "open", "click", "bounce", "dropped", "spamreport"}
+
+# Known email provider domains
+EMAIL_PROVIDER_MAP = {
+    "gmail.com": "gmail",
+    "googlemail.com": "gmail",
+    "outlook.com": "outlook",
+    "hotmail.com": "outlook",
+    "live.com": "outlook",
+    "msn.com": "outlook",
+    "yahoo.com": "yahoo",
+    "ymail.com": "yahoo",
+    "icloud.com": "apple",
+    "me.com": "apple",
+    "mac.com": "apple",
+    "aol.com": "aol",
+    "protonmail.com": "protonmail",
+    "proton.me": "protonmail",
+}
 
 
 def normalize_msg_id(mid: str | None) -> str | None:
     if not mid:
         return None
     return mid.strip().lstrip("<").rstrip(">")
+
+
+def _get_email_provider(email: str | None) -> str:
+    """Extract email provider from the recipient's email domain."""
+    if not email or "@" not in email:
+        return "unknown"
+    domain = email.split("@")[1].lower()
+    return EMAIL_PROVIDER_MAP.get(domain, "other")
 
 
 @router.post("/events")
@@ -41,10 +68,13 @@ async def events(request: Request):
         return Response(status_code=200)
 
     total = len(payload)
-    counts = {"delivered": 0, "open": 0, "click": 0}
+    counts = {et: 0 for et in ALLOWED_EVENT_TYPES}
     skipped_no_ids = 0
     skipped_other_type = 0
     crm_tasks = []
+
+    # Pre-fetch auth token once for the whole batch (cached, fast)
+    token = await get_auth_token()
 
     for ev in payload:
         event_type = ev.get("event")
@@ -93,22 +123,33 @@ async def events(request: Request):
         except Exception:
             msg_seq = 0
 
+        logger.info(
+            "sendgrid_event forwarding event=%s to=%s threadId=%d messageId=%d",
+            event_type, email, thread_seq, msg_seq,
+        )
+
         crm_event_payload = {
             "toEmail": email,
-            "threadSeqNum": thread_seq,
-            "messageSeqNum": msg_seq,
+            "threadId": thread_seq,
+            "messageId": msg_seq,
             "sendGridMessageId": smtp_id or "",
             "eventType": event_type,
             "ipAddress": ip or "",
             "region": region_str or "",
+            "emailProvider": _get_email_provider(email),
+            "userAgent": ev.get("useragent") or "",
+            "url": ev.get("url") or "",
+            "reason": ev.get("reason") or "",
+            "bounceClassification": ev.get("bounce_classification") or "",
             "rawEvent": str(ev),
         }
 
-        crm_tasks.append(send_email_event_to_crm(crm_event_payload))
+        crm_tasks.append(send_email_event_to_crm(crm_event_payload, token=token))
 
     logger.info(
-        "sendgrid_events received total=%d delivered=%d open=%d click=%d skipped_no_ids=%d skipped_other_type=%d",
+        "sendgrid_events received total=%d delivered=%d open=%d click=%d bounce=%d dropped=%d spamreport=%d skipped_no_ids=%d skipped_other_type=%d",
         total, counts["delivered"], counts["open"], counts["click"],
+        counts["bounce"], counts["dropped"], counts["spamreport"],
         skipped_no_ids, skipped_other_type,
     )
 
@@ -178,7 +219,8 @@ async def inbound_email(request: Request):
         "htmlBody": html_body,
     }
 
-    status, body = await send_inbound_email_to_crm(crm_inbound_payload)
+    token = await get_auth_token()
+    status, body = await send_inbound_email_to_crm(crm_inbound_payload, token=token)
 
     duration_ms = int((time.perf_counter() - start) * 1000)
     if status and 200 <= status < 300:

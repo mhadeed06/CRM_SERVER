@@ -13,8 +13,12 @@ class Settings:
     CRM_BASE_URL: str = os.getenv("CRM_BASE_URL", "")
     CRM_EVENT_ENDPOINT: str = os.getenv("CRM_EVENT_ENDPOINT", "")
     CRM_INBOUND_ENDPOINT: str = os.getenv("CRM_INBOUND_ENDPOINT", "")
-    CRM_TOKEN: str = os.getenv("CRM_TOKEN", "")
     SENDGRID_REPLY_TO_EMAIL: str = os.getenv("SENDGRID_REPLY_TO_EMAIL", "")
+
+    # Auth service — for fetching dynamic bearer token
+    AUTH_URL: str = os.getenv("AUTH_URL", "")
+    AUTH_EMAIL: str = os.getenv("AUTH_EMAIL", "")
+    AUTH_PASSWORD: str = os.getenv("AUTH_PASSWORD", "")
 
 
 CONFIG = Settings()

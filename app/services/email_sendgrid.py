@@ -138,4 +138,11 @@ def send_email_bulk(
         len(recipients), resp.status_code, sendgrid_message_id, duration_ms,
     )
 
+    # Log custom_args per recipient for traceability
+    for r in recipients:
+        logger.info(
+            "sendgrid_api custom_args to=%s thread_id=%s message_id=%s",
+            r.get("to_email"), r.get("thread_id"), r.get("message_id"),
+        )
+
     return True, sendgrid_message_id
