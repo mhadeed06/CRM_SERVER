@@ -2,6 +2,7 @@ trigger:
   branches:
     include:
       - sms-email-refactor
+      - main
   paths:
 
     exclude:
@@ -28,5 +29,4 @@ stages:
               command: 'buildAndPush'
               Dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
               tags: |
-                $(Build.SourceBranchName)-$(Build.BuildId)
                 $(Build.SourceBranchName)-latest
