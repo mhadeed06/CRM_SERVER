@@ -82,11 +82,19 @@ async def events(request: Request):
         thread_id = custom_args.get("thread_id") or ev.get("thread_id")
         message_id = custom_args.get("message_id") or ev.get("message_id")
 
-        if thread_id is None or message_id is None:
+        # Skip if IDs are missing OR zero
+        try:
+            thread_id_int = int(thread_id) if thread_id is not None else None
+            message_id_int = int(message_id) if message_id is not None else None
+        except (TypeError, ValueError):
+            thread_id_int = None
+            message_id_int = None
+
+        if not thread_id_int or not message_id_int:
             skipped_no_ids += 1
-            logger.debug(
-                "sendgrid_event skipped reason=missing_ids event=%s email=%s",
-                event_type, ev.get("email"),
+            logger.info(
+                "sendgrid_event skipped reason=missing_or_zero_ids event=%s email=%s thread_id=%s message_id=%s",
+                event_type, ev.get("email"), thread_id, message_id,
             )
             continue
 
