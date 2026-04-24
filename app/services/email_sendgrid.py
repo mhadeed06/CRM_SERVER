@@ -11,13 +11,25 @@ logger = logging.getLogger(__name__)
 reply_to_email = CONFIG.SENDGRID_REPLY_TO_EMAIL
 
 
+def _wrap_msg_id(mid: str) -> str:
+    """Ensure Message-ID is wrapped in <...> per RFC 5322."""
+    mid = mid.strip()
+    if not mid:
+        return mid
+    if not mid.startswith("<"):
+        mid = "<" + mid
+    if not mid.endswith(">"):
+        mid = mid + ">"
+    return mid
+
+
 def _build_references(references: Optional[str], reply_to_message_id: Optional[str]) -> Optional[str]:
     """
     Build the References header value.
     - references: comma-separated string of previous message IDs (can be None)
     - reply_to_message_id: the immediate parent message ID (can be None)
 
-    Returns space-separated string as required by RFC 5322, or None if nothing to reference.
+    Returns space-separated string of <id@domain> tokens per RFC 5322, or None.
     """
     ids = []
 
@@ -28,7 +40,7 @@ def _build_references(references: Optional[str], reply_to_message_id: Optional[s
     if reply_to_message_id and reply_to_message_id not in ids:
         ids.append(reply_to_message_id)
 
-    return " ".join(ids) if ids else None
+    return " ".join(_wrap_msg_id(mid) for mid in ids) if ids else None
 
 
 def send_email_bulk(
@@ -95,10 +107,16 @@ def send_email_bulk(
             personalization["headers"] = {}
 
             if reply_to_message_id:
-                personalization["headers"]["In-Reply-To"] = reply_to_message_id
+                personalization["headers"]["In-Reply-To"] = _wrap_msg_id(reply_to_message_id)
 
             if references_header:
                 personalization["headers"]["References"] = references_header
+
+        logger.info(
+            "email_threading to=%s subject=%r in_reply_to_raw=%r references_raw=%r headers=%s",
+            r["to_email"], subject, reply_to_message_id, references,
+            personalization.get("headers"),
+        )
 
         personalizations.append(personalization)
 
