@@ -203,8 +203,8 @@ async def inbound_email(request: Request):
 
     from_raw = form_data.get("from")
     subject = form_data.get("subject")
-    text_body = form_data.get("text")
-    html_body = form_data.get("html")
+    text_body = form_data.get("stripped-text") or form_data.get("text")
+    html_body = form_data.get("stripped-html") or form_data.get("html")
     to_email = form_data.get("to")
 
     email_match = re.search(r"<(.+?)>", from_raw or "")
