@@ -14,6 +14,7 @@ from app.services.crm_client import (
     send_inbound_email_to_crm,
 )
 from app.utils.geoip import get_region_from_ip
+from app.utils.html_quote_stripper import strip_quoted_html
 
 router = APIRouter(prefix="/webhooks/sendgrid", tags=["Webhooks"])
 logger = logging.getLogger(__name__)
@@ -204,11 +205,23 @@ async def inbound_email(request: Request):
     from_raw = form_data.get("from")
     subject = form_data.get("subject")
     text_body = form_data.get("stripped-text") or form_data.get("text")
-    html_body = form_data.get("stripped-html") or form_data.get("html")
+    # SendGrid's stripped-html is unreliable across clients — strip quoted
+    # parent blocks ourselves using known client-specific selectors.
+    raw_html = form_data.get("html")
+    html_body = strip_quoted_html(raw_html) if raw_html else None
     to_email = form_data.get("to")
 
     email_match = re.search(r"<(.+?)>", from_raw or "")
     from_email = email_match.group(1) if email_match else from_raw
+
+    # Sanity check: if stripping removed almost nothing, it's either a clean
+    # one-shot email (normal) or a reply from a client whose wrapper we don't
+    # recognize (gap to add a new selector for).
+    if raw_html and html_body and len(html_body) > 0.9 * len(raw_html):
+        logger.info(
+            "html_quote_strip no_change from=%s raw_len=%d stripped_len=%d (clean OR unknown client)",
+            from_email, len(raw_html), len(html_body),
+        )
 
     logger.info(
         "inbound_email received from=%s to=%s message_id=%s in_reply_to=%s text_len=%d html_len=%d",
