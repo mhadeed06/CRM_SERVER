@@ -1,7 +1,9 @@
 import os
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import CONFIG
 from app.core.logging_config import setup_logging
 
 setup_logging()
@@ -13,6 +15,19 @@ from app.api.v1.routes.webhooks_telnyx import router as telnyx_webhook_router
 from app.api.v1.routes.redirect import router as redirect_router
 
 app = FastAPI(title="Comms Service ")
+
+# CORS — browsers blocking calls from the CRM frontend (e.g. localhost:3000)
+# are unblocked by listing their origin in CORS_ALLOWED_ORIGINS env var.
+_allowed_origins = [
+    o.strip() for o in CONFIG.CORS_ALLOWED_ORIGINS.split(",") if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Email APIs + Webhooks
 app.include_router(email_router, prefix="/api/v1")

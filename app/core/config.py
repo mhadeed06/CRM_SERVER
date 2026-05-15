@@ -23,6 +23,13 @@ class Settings:
     # Shared HS256 secret with PracticeEHR .NET CRM backend for JWT verification
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
 
+    # Comma-separated list of origins allowed to call the API from a browser.
+    # Default covers common local dev ports; add prod origins via App Service env.
+    CORS_ALLOWED_ORIGINS: str = os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:5173",
+    )
+
 
 CONFIG = Settings()
 
