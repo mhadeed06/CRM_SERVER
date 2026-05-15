@@ -9,6 +9,7 @@ class RecipientItem(BaseModel):
     message_id: int
     reply_to_message_id: Optional[str] = None
     references: Optional[str] = None  # comma-separated list of previous message IDs
+    is_test: Optional[bool] = None  # mark as test so resulting events are NOT forwarded to CRM
 
 
 class SendEmailRequest(BaseModel):

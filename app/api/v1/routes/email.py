@@ -2,8 +2,9 @@ import logging
 import time
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.auth.jwt_auth import verify_token
 from app.domain.email_models import (
     RecipientSendResult,
     SendEmailRequest,
@@ -15,7 +16,11 @@ router = APIRouter(prefix="/email", tags=["Email"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/send", response_model=SendEmailResponse)
+@router.post(
+    "/send",
+    response_model=SendEmailResponse,
+    dependencies=[Depends(verify_token)],
+)
 async def send(req: SendEmailRequest):
     start = time.perf_counter()
     recipient_count = len(req.recipients)

@@ -72,6 +72,7 @@ async def events(request: Request):
     counts = {et: 0 for et in ALLOWED_EVENT_TYPES}
     skipped_no_ids = 0
     skipped_other_type = 0
+    skipped_test = 0
     crm_tasks = []
 
     # Pre-fetch auth token once for the whole batch (cached, fast)
@@ -95,6 +96,16 @@ async def events(request: Request):
             skipped_no_ids += 1
             logger.info(
                 "sendgrid_event skipped reason=missing_or_zero_ids event=%s email=%s thread_id=%s message_id=%s",
+                event_type, ev.get("email"), thread_id, message_id,
+            )
+            continue
+
+        # If the sender marked this email as a test on /email/send, SendGrid
+        # echoes the custom_arg back on every event — skip CRM forwarding.
+        if custom_args.get("is_test"):
+            skipped_test += 1
+            logger.info(
+                "sendgrid_event skipped reason=is_test event=%s email=%s thread_id=%s message_id=%s",
                 event_type, ev.get("email"), thread_id, message_id,
             )
             continue
@@ -156,10 +167,10 @@ async def events(request: Request):
         crm_tasks.append(send_email_event_to_crm(crm_event_payload, token=token))
 
     logger.info(
-        "sendgrid_events received total=%d delivered=%d open=%d click=%d bounce=%d dropped=%d spamreport=%d skipped_no_ids=%d skipped_other_type=%d",
+        "sendgrid_events received total=%d delivered=%d open=%d click=%d bounce=%d dropped=%d spamreport=%d skipped_no_ids=%d skipped_other_type=%d skipped_test=%d",
         total, counts["delivered"], counts["open"], counts["click"],
         counts["bounce"], counts["dropped"], counts["spamreport"],
-        skipped_no_ids, skipped_other_type,
+        skipped_no_ids, skipped_other_type, skipped_test,
     )
 
     crm_success = 0

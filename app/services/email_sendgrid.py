@@ -89,13 +89,20 @@ def send_email_bulk(
 
     for r in recipients:
 
+        custom_args = {
+            "thread_id": r["thread_id"],
+            "message_id": r["message_id"],
+        }
+
+        # Optional test marker — SendGrid echoes this back on every event
+        # for this message, so the events webhook can skip CRM forwarding.
+        if r.get("is_test"):
+            custom_args["is_test"] = "1"
+
         personalization = {
             "to": [{"email": r["to_email"]}],
             "subject": subject,
-            "custom_args": {
-                "thread_id": r["thread_id"],
-                "message_id": r["message_id"],
-            }
+            "custom_args": custom_args,
         }
 
         reply_to_message_id = r.get("reply_to_message_id")

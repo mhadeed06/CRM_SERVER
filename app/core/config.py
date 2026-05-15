@@ -20,6 +20,9 @@ class Settings:
     AUTH_EMAIL: str = os.getenv("AUTH_EMAIL", "")
     AUTH_PASSWORD: str = os.getenv("AUTH_PASSWORD", "")
 
+    # Shared HS256 secret with PracticeEHR .NET CRM backend for JWT verification
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
+
 
 CONFIG = Settings()
 

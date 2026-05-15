@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 
 from app.core.logging_config import setup_logging
@@ -22,6 +24,9 @@ app.include_router(telnyx_webhook_router, prefix="/api/v1")
 app.include_router(redirect_router, prefix="/api/v1")
 
 
+APP_VERSION = os.getenv("APP_VERSION", "unknown")
+
+
 @app.get("/")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION}

@@ -29,5 +29,6 @@ stages:
               repository: $(acr_repo)
               command: 'buildAndPush'
               Dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
+              arguments: '--build-arg GIT_COMMIT=$(Build.SourceVersion)'
               tags: |
                 $(Build.SourceBranchName)-latest
