@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 @router.post(
     "/send",
     response_model=SendEmailResponse,
-    dependencies=[Depends(verify_token)],
+    # JWT auth temporarily disabled until .NET CRM caller is ready to send tokens.
+    # To re-enable: uncomment the line below.
+    # dependencies=[Depends(verify_token)],
 )
 async def send(req: SendEmailRequest):
     start = time.perf_counter()
