@@ -1,72 +1,76 @@
-# from fastapi import APIRouter, HTTPException
-# from ....domain.email_models import SendEmailRequest, SendEmailResponse
-# from ....services.email_sendgrid import send_email
-# from ....store.memory_store import create_email_record, get_email_record, list_email_records
+import logging
+import time
+from datetime import datetime
 
-# router = APIRouter(prefix="/email", tags=["Email"])
+from fastapi import APIRouter
 
-# @router.post("/send", response_model=SendEmailResponse)
-# def send(req: SendEmailRequest):
-#     try:
-#         msg_id = send_email(req.to_email, req.subject, req.html)
-#         create_email_record(msg_id, req.to_email, req.subject)
-#         return SendEmailResponse(message_id=msg_id, status="sent")
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# @router.get("/status/{message_id}")
-# def status(message_id: str):
-#     record = get_email_record(message_id)
-#     if not record:
-#         raise HTTPException(status_code=404, detail="Message not found")
-#     return record
-
-# @router.get("/status")
-# def list_status():
-#     return list_email_records()
-
-
-from fastapi import APIRouter, HTTPException
-from ....domain.email_models import SendEmailRequest, SendEmailResponse, RecipientSendResult
-from ....services.email_sendgrid import send_email_bulk
-from ....store.memory_store import create_email_record
+from app.domain.email_models import (
+    RecipientSendResult,
+    SendEmailRequest,
+    SendEmailResponse,
+)
+from app.services.email_sendgrid import send_email_bulk
 
 router = APIRouter(prefix="/email", tags=["Email"])
+logger = logging.getLogger(__name__)
+
 
 @router.post("/send", response_model=SendEmailResponse)
 async def send(req: SendEmailRequest):
-    recipients = []
+    start = time.perf_counter()
+    recipient_count = len(req.recipients)
 
-    # BULK
-    if req.recipients:
-        missing = [r.email for r in req.recipients if not r.client_message_id]
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"client_message_id is required for all recipients. Missing for: {missing}"
-            )
+    logger.info(
+        "email_send requested recipients=%d from=%s subject_len=%d",
+        recipient_count, req.from_email, len(req.subject),
+    )
 
-        for r in req.recipients:
-            recipients.append({"email": r.email, "tracking_id": r.client_message_id})
+    try:
+        success, sendgrid_message_id = send_email_bulk(
+            subject=req.subject,
+            html=req.html,
+            text=req.text,
+            from_email=req.from_email,
+            recipients=[r.model_dump() for r in req.recipients],
+        )
+    except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "email_send failed recipients=%d from=%s error=%r duration_ms=%d",
+            recipient_count, req.from_email, e, duration_ms,
+        )
+        return SendEmailResponse(
+            status=False,
+            timestamp=datetime.utcnow(),
+            results=[
+                RecipientSendResult(
+                    to_email=r.to_email,
+                    thread_id=r.thread_id,
+                    message_id=r.message_id,
+                    status=f"error: {str(e)}",
+                )
+                for r in req.recipients
+            ],
+        )
 
-    # SINGLE
-    elif req.to_email:
-        if not req.client_message_id:
-            raise HTTPException(
-                status_code=400,
-                detail="client_message_id is required when using to_email (single send)."
-            )
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    logger.info(
+        "email_send succeeded recipients=%d sendgrid_message_id=%s duration_ms=%d",
+        recipient_count, sendgrid_message_id, duration_ms,
+    )
 
-        recipients.append({"email": req.to_email, "tracking_id": req.client_message_id})
+    results = [
+        RecipientSendResult(
+            to_email=r.to_email,
+            thread_id=r.thread_id,
+            message_id=r.message_id,
+            status="accepted" if success else "rejected",
+        )
+        for r in req.recipients
+    ]
 
-    else:
-        raise HTTPException(status_code=400, detail="Provide either 'to_email' or 'recipients'.")
-
-    sent = send_email_bulk(recipients=recipients, subject=req.subject, html=req.html)
-
-    results = []
-    for email, tracking_id in sent:
-        create_email_record(tracking_id=tracking_id, to_email=email, subject=req.subject)
-        results.append(RecipientSendResult(email=email, tracking_id=tracking_id))
-
-    return SendEmailResponse(results=results)
+    return SendEmailResponse(
+        status=True,
+        timestamp=datetime.utcnow(),
+        results=results,
+    )

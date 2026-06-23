@@ -11,13 +11,9 @@ class SMSRecipient(BaseModel):
 class SendSMSRequest(BaseModel):
     text: str
     link_url: Optional[str] = None
-    # single
-    to_phone: Optional[str] = None
-    client_message_id: Optional[str] = None
-
-    # bulk
-    recipients: List[SMSRecipient] = Field(default_factory=list)
-
+    recipients: List[SMSRecipient] = Field(
+        ..., description="List of recipients (use list of 1 for single SMS)."
+    )
 
 class SMSSendResult(BaseModel):
     phone: str

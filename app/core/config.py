@@ -10,6 +10,16 @@ class Settings:
     TELNYX_API_KEY: str = os.getenv("TELNYX_API_KEY", "")
     TELNYX_FROM_NUMBER: str = os.getenv("TELNYX_FROM_NUMBER", "")
     PUBLIC_BASE_URL: str = os.getenv("PUBLIC_BASE_URL", "")
+    CRM_BASE_URL: str = os.getenv("CRM_BASE_URL", "")
+    CRM_EVENT_ENDPOINT: str = os.getenv("CRM_EVENT_ENDPOINT", "")
+    CRM_INBOUND_ENDPOINT: str = os.getenv("CRM_INBOUND_ENDPOINT", "")
+    SENDGRID_REPLY_TO_EMAIL: str = os.getenv("SENDGRID_REPLY_TO_EMAIL", "")
+
+    # Auth service — for fetching dynamic bearer token
+    AUTH_URL: str = os.getenv("AUTH_URL", "")
+    AUTH_EMAIL: str = os.getenv("AUTH_EMAIL", "")
+    AUTH_PASSWORD: str = os.getenv("AUTH_PASSWORD", "")
 
 
-settings = Settings()
+CONFIG = Settings()
+
