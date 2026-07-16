@@ -37,6 +37,7 @@ from app.services.crm_client import (
     send_email_event_to_crm,
     send_inbound_email_to_crm,
 )
+from app.services.email_ses import normalize_ses_message_id
 from app.utils.geoip import get_region_from_ip
 from app.utils.html_quote_stripper import strip_quoted_html
 from app.utils.text_quote_stripper import strip_quoted_text
@@ -216,7 +217,9 @@ async def events(request: Request):
 
     mail_block = ses_event.get("mail", {}) or {}
     tags = _tags_dict(mail_block.get("tags"))
-    smtp_id = mail_block.get("messageId", "") or ""
+    # SES event carries the bare id; normalize so the value CRM stores matches
+    # what replies' `In-Reply-To` header will contain (@email.amazonses.com).
+    smtp_id = normalize_ses_message_id(mail_block.get("messageId", "")) or ""
 
     thread_id_raw = tags.get("thread_id")
     message_id_raw = tags.get("message_id")

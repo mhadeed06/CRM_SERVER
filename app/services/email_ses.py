@@ -45,6 +45,31 @@ def _wrap_msg_id(mid: str) -> str:
     return mid
 
 
+# SES publishes bare message IDs via SendEmail API + event notifications, but
+# stamps the actual outbound `Message-ID` header as `<{id}@email.amazonses.com>`.
+# Recipients' `In-Reply-To` on replies carries the header value — so anything
+# CRM stores for correlation must include the suffix, or lookups will miss.
+_SES_MESSAGE_ID_DOMAIN = "email.amazonses.com"
+
+
+def normalize_ses_message_id(mid: Optional[str]) -> Optional[str]:
+    """
+    Convert a bare SES message id (`abc-def-...-000000`) into the fully
+    qualified form (`abc-def-...-000000@email.amazonses.com`) so it matches
+    the `Message-ID` header SES actually stamps on the outbound email.
+
+    Leaves already-qualified ids untouched. Returns None on empty/None input.
+    """
+    if not mid:
+        return None
+    mid = mid.strip()
+    if not mid:
+        return None
+    if "@" in mid:
+        return mid
+    return f"{mid}@{_SES_MESSAGE_ID_DOMAIN}"
+
+
 def _build_references(references: Optional[str], reply_to_message_id: Optional[str]) -> Optional[str]:
     """
     Build the References header value.
@@ -224,7 +249,9 @@ def send_email_bulk(
             )
             raise RuntimeError(f"SES request failed: {e}")
 
-        msg_id = resp.get("MessageId")
+        # SES returns a bare id — normalize to the RFC 5322 Message-ID form
+        # so downstream storage matches what replies' In-Reply-To will carry.
+        msg_id = normalize_ses_message_id(resp.get("MessageId"))
         last_message_id = msg_id
         ok_count += 1
         logger.info(
