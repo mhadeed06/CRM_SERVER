@@ -2,6 +2,7 @@ trigger:
   branches:
     include:
       - sms-email-refactor
+      - email-ses-migration
       - main
   paths:
     exclude:

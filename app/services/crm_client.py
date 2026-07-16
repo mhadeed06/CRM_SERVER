@@ -23,7 +23,7 @@ async def send_email_event_to_crm(
     event_payload: dict,
     token: str | None = None,
 ) -> tuple[int | None, str]:
-    """Forward a SendGrid outbound event (delivered/open/click) to CRM."""
+    """Forward an outbound email event (delivered/open/click/bounce) to CRM."""
     if not CONFIG.CRM_BASE_URL or not CONFIG.CRM_EVENT_ENDPOINT:
         logger.error("crm_event not_configured")
         return None, "CRM URL not configured"

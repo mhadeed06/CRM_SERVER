@@ -10,7 +10,7 @@ from app.domain.email_models import (
     SendEmailRequest,
     SendEmailResponse,
 )
-from app.services.email_sendgrid import send_email_bulk
+from app.services.email_ses import send_email_bulk
 
 router = APIRouter(prefix="/email", tags=["Email"])
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ async def send(req: SendEmailRequest):
     )
 
     try:
-        success, sendgrid_message_id = send_email_bulk(
+        success, provider_message_id = send_email_bulk(
             subject=req.subject,
             html=req.html,
             text=req.text,
@@ -62,8 +62,8 @@ async def send(req: SendEmailRequest):
 
     duration_ms = int((time.perf_counter() - start) * 1000)
     logger.info(
-        "email_send succeeded recipients=%d sendgrid_message_id=%s duration_ms=%d",
-        recipient_count, sendgrid_message_id, duration_ms,
+        "email_send succeeded recipients=%d ses_message_id=%s duration_ms=%d",
+        recipient_count, provider_message_id, duration_ms,
     )
 
     results = [
