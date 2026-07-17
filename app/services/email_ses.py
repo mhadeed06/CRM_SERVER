@@ -109,10 +109,12 @@ def _build_mime(
         msg["Cc"] = ", ".join(cc_list)
     if reply_to:
         msg["Reply-To"] = reply_to
-    if in_reply_to:
-        msg["In-Reply-To"] = _wrap_msg_id(in_reply_to)
-    if references_header:
-        msg["References"] = references_header
+    # NOTE: In-Reply-To and References are intentionally NOT set here.
+    # Python's default EmailMessage policy Q-encodes long structured header
+    # values (RFC 2047 encoded-words), but RFC 5322 §3.6.4 requires msg-id
+    # headers to be structured and forbids encoded-words in them. Outlook
+    # honors the RFC strictly and won't decode Q-encoded References, so
+    # threading breaks. We inject these headers as plain ASCII below.
 
     # Prefer HTML with a text fallback when both are provided.
     if text and html:
@@ -123,7 +125,33 @@ def _build_mime(
     elif text:
         msg.set_content(text)
 
-    return msg.as_bytes()
+    raw = msg.as_bytes()
+
+    if in_reply_to or references_header:
+        extras = b""
+        if in_reply_to:
+            wrapped = _wrap_msg_id(in_reply_to)
+            extras += f"In-Reply-To: {wrapped}\r\n".encode("ascii")
+        if references_header:
+            # Fold at whitespace boundaries to keep individual lines under the
+            # RFC 5322 line-length limit (998 chars). Safe because msg-ids
+            # never contain unquoted spaces.
+            folded = references_header.replace(" ", "\r\n ")
+            extras += f"References: {folded}\r\n".encode("ascii")
+
+        # Insert right after the last header line, before the blank-line
+        # separator between headers and body.
+        sep = b"\r\n\r\n"
+        sep_idx = raw.find(sep)
+        if sep_idx == -1:
+            # Fallback to LF-only if we ever run under a policy that uses \n.
+            sep = b"\n\n"
+            sep_idx = raw.find(sep)
+        if sep_idx != -1:
+            line_end = sep[: len(sep) // 2]
+            raw = raw[: sep_idx + len(line_end)] + extras + raw[sep_idx + len(line_end):]
+
+    return raw
 
 
 def _sanitize_tag_value(value: str) -> str:
