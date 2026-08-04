@@ -114,3 +114,48 @@ async def send_inbound_email_to_crm(
         )
 
     return resp.status_code, resp.text
+
+
+async def send_unsubscribe_to_crm(
+    email: str,
+    token: str | None = None,
+) -> tuple[int | None, str]:
+    """Notify CRM that a recipient has unsubscribed."""
+    if not CONFIG.CRM_BASE_URL or not CONFIG.CRM_UNSUBSCRIBE_ENDPOINT:
+        logger.error("crm_unsubscribe not_configured")
+        return None, "CRM unsubscribe URL not configured"
+
+    if not token:
+        logger.error("crm_unsubscribe skipped — missing auth token")
+        return None, "Missing auth token"
+
+    url = CONFIG.CRM_BASE_URL + CONFIG.CRM_UNSUBSCRIBE_ENDPOINT
+    body = {"email": email}
+    headers = _build_headers(token)
+
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, json=body, headers=headers)
+    except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        logger.error(
+            "crm_unsubscribe request_exception email=%s duration_ms=%d error=%r",
+            email, duration_ms, e,
+        )
+        return None, str(e)
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+
+    if 200 <= resp.status_code < 300:
+        logger.info(
+            "crm_unsubscribe ok email=%s status=%s duration_ms=%d",
+            email, resp.status_code, duration_ms,
+        )
+    else:
+        logger.error(
+            "crm_unsubscribe bad_status email=%s status=%s duration_ms=%d body=%s",
+            email, resp.status_code, duration_ms, resp.text[:500],
+        )
+
+    return resp.status_code, resp.text

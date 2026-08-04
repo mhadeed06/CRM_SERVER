@@ -15,6 +15,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from app.core.config import CONFIG
+from app.services import unsubscribe
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ def _build_mime(
     cc_list: Optional[List[str]],
     in_reply_to: Optional[str],
     references_header: Optional[str],
+    unsubscribe_url: Optional[str] = None,
 ) -> bytes:
     """Build a raw RFC 5322 MIME message for SES SendRawEmail."""
     msg = EmailMessage()
@@ -109,6 +111,11 @@ def _build_mime(
         msg["Cc"] = ", ".join(cc_list)
     if reply_to:
         msg["Reply-To"] = reply_to
+    if unsubscribe_url:
+        # RFC 8058 one-click unsubscribe — Gmail/Outlook show a native button
+        # next to the sender name that POSTs to this URL when clicked.
+        msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     # NOTE: In-Reply-To and References are intentionally NOT set here.
     # Python's default EmailMessage policy Q-encodes long structured header
     # values (RFC 2047 encoded-words), but RFC 5322 §3.6.4 requires msg-id
@@ -219,9 +226,15 @@ def send_email_bulk(
         references_raw = r.get("references")
         references_header = _build_references(references_raw, reply_to_message_id)
 
+        # If the CRM-provided HTML contains {{UNSUBSCRIBE_URL}}, replace it
+        # with a signed per-recipient URL and also set the List-Unsubscribe
+        # header. If the placeholder is absent, `html_for_send == html` and
+        # unsubscribe_url is None — no header, no behavior change.
+        html_for_send, unsubscribe_url = unsubscribe.inject_into_html(html, to_email)
+
         raw_mime = _build_mime(
             subject=subject,
-            html=html,
+            html=html_for_send,
             text=text,
             from_header=from_header,
             reply_to=reply_to,
@@ -229,6 +242,7 @@ def send_email_bulk(
             cc_list=cc_list,
             in_reply_to=reply_to_message_id,
             references_header=references_header,
+            unsubscribe_url=unsubscribe_url,
         )
 
         # Message tags — SES echoes these on every event via SNS. Used by

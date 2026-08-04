@@ -38,8 +38,10 @@ from app.services.crm_client import (
     send_inbound_email_to_crm,
 )
 from app.services.email_ses import normalize_ses_message_id
+from app.utils.device_detector import detect_device_type
 from app.utils.geoip import get_region_from_ip
 from app.utils.html_quote_stripper import strip_quoted_html
+from app.utils.mail_provider import get_email_provider
 from app.utils.text_quote_stripper import strip_quoted_text
 
 router = APIRouter(prefix="/webhooks/ses", tags=["Webhooks"])
@@ -58,31 +60,6 @@ _SES_TO_CRM_EVENT = {
     # Send / DeliveryDelay / Rendering Failure / Subscription — intentionally
     # not forwarded (either duplicative of Delivery, or not needed by CRM).
 }
-
-
-EMAIL_PROVIDER_MAP = {
-    "gmail.com": "gmail",
-    "googlemail.com": "gmail",
-    "outlook.com": "outlook",
-    "hotmail.com": "outlook",
-    "live.com": "outlook",
-    "msn.com": "outlook",
-    "yahoo.com": "yahoo",
-    "ymail.com": "yahoo",
-    "icloud.com": "apple",
-    "me.com": "apple",
-    "mac.com": "apple",
-    "aol.com": "aol",
-    "protonmail.com": "protonmail",
-    "proton.me": "protonmail",
-}
-
-
-def _get_email_provider(email):
-    if not email or "@" not in email:
-        return "unknown"
-    domain = email.split("@")[1].lower()
-    return EMAIL_PROVIDER_MAP.get(domain, "other")
 
 
 def _tags_dict(mail_tags):
@@ -284,8 +261,9 @@ async def events(request: Request):
         "eventType": crm_event_type,
         "ipAddress": ip or "",
         "region": region_str or "",
-        "emailProvider": _get_email_provider(recipient_email),
+        "emailProvider": get_email_provider(recipient_email),
         "userAgent": useragent or "",
+        "deviceType": detect_device_type(useragent),
         "url": url,
         "reason": reason,
         "bounceClassification": bounce_classification,

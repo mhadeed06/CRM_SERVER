@@ -49,6 +49,15 @@ class Settings:
     # Shared HS256 secret with PracticeEHR .NET CRM backend for JWT verification
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
 
+    # Independent HS256 secret for signing unsubscribe tokens embedded in
+    # outbound email links. Kept separate from JWT_SECRET_KEY so unsubscribe
+    # tokens can't be swapped for auth tokens.
+    UNSUBSCRIBE_SECRET_KEY: str = os.getenv("UNSUBSCRIBE_SECRET_KEY", "")
+
+    # CRM endpoint we call when a recipient clicks unsubscribe. Appended to
+    # CRM_BASE_URL like the other CRM endpoints.
+    CRM_UNSUBSCRIBE_ENDPOINT: str = os.getenv("CRM_UNSUBSCRIBE_ENDPOINT", "")
+
     # Comma-separated list of origins allowed to call the API from a browser.
     CORS_ALLOWED_ORIGINS: str = os.getenv(
         "CORS_ALLOWED_ORIGINS",
