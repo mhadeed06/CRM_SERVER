@@ -11,6 +11,7 @@ class RecipientItem(BaseModel):
     references: Optional[str] = None  # comma-separated list of previous message IDs
     is_test: Optional[bool] = None  # mark as test so resulting events are NOT forwarded to CRM
     cc: Optional[List[EmailStr]] = None  # additional CC recipients; treated identically to `to` by CRM
+    entity_id: Optional[str] = None  # CRM tenant/practice id — echoed back on unsubscribe events
 
 
 class SendEmailRequest(BaseModel):

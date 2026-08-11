@@ -230,7 +230,11 @@ def send_email_bulk(
         # with a signed per-recipient URL and also set the List-Unsubscribe
         # header. If the placeholder is absent, `html_for_send == html` and
         # unsubscribe_url is None — no header, no behavior change.
-        html_for_send, unsubscribe_url = unsubscribe.inject_into_html(html, to_email)
+        # entity_id (when provided) is embedded in the signed token so we can
+        # send it back to CRM on unsubscribe.
+        html_for_send, unsubscribe_url = unsubscribe.inject_into_html(
+            html, to_email, entity_id=r.get("entity_id"),
+        )
 
         raw_mime = _build_mime(
             subject=subject,

@@ -45,18 +45,25 @@ def is_configured() -> bool:
     return bool(_secret()) and bool(_base_url())
 
 
-def make_token(email: str) -> Optional[str]:
-    """Create a signed token that identifies the unsubscribing recipient."""
+def make_token(email: str, entity_id: Optional[str] = None) -> Optional[str]:
+    """
+    Create a signed token that identifies the unsubscribing recipient.
+    `entity_id` (CRM tenant/practice id) is optional — included in the JWT
+    payload when provided so it can be echoed back to CRM on click.
+    """
     if not is_configured() or not email:
         return None
     payload = {"email": email, "typ": _TOKEN_TYPE}
+    if entity_id:
+        payload["entity_id"] = str(entity_id)
     return jwt.encode(payload, _secret(), algorithm=_TOKEN_ALGO)
 
 
-def verify_token(token: str) -> Optional[str]:
+def verify_token(token: str) -> Optional[dict]:
     """
-    Return the email address if the token is a valid unsubscribe token,
-    otherwise None. Never raises.
+    Verify an unsubscribe token. Returns {'email': ..., 'entity_id': ...}
+    (entity_id may be None if the token was minted without one) or None on
+    any failure. Never raises.
     """
     if not token or not _secret():
         return None
@@ -68,18 +75,28 @@ def verify_token(token: str) -> Optional[str]:
     if payload.get("typ") != _TOKEN_TYPE:
         return None
     email = payload.get("email")
-    return email if isinstance(email, str) and email else None
+    if not isinstance(email, str) or not email:
+        return None
+    entity_id = payload.get("entity_id")
+    return {
+        "email": email,
+        "entity_id": str(entity_id) if entity_id else None,
+    }
 
 
-def build_url(email: str) -> Optional[str]:
+def build_url(email: str, entity_id: Optional[str] = None) -> Optional[str]:
     """Full unsubscribe URL for an email address, or None if not configured."""
-    token = make_token(email)
+    token = make_token(email, entity_id=entity_id)
     if not token:
         return None
     return f"{_base_url()}{_ROUTE_PATH}?token={token}"
 
 
-def inject_into_html(html: Optional[str], recipient_email: str) -> tuple[Optional[str], Optional[str]]:
+def inject_into_html(
+    html: Optional[str],
+    recipient_email: str,
+    entity_id: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
     """
     Look for `{{UNSUBSCRIBE_URL}}` in the HTML and replace it with a signed
     URL for this recipient. Returns (possibly-modified html, unsubscribe url).
@@ -93,7 +110,7 @@ def inject_into_html(html: Optional[str], recipient_email: str) -> tuple[Optiona
     if not html or PLACEHOLDER not in html:
         return html, None
 
-    url = build_url(recipient_email)
+    url = build_url(recipient_email, entity_id=entity_id)
     if not url:
         logger.warning(
             "unsubscribe_placeholder_present_but_not_configured to=%s",

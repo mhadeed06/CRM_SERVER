@@ -118,6 +118,7 @@ async def send_inbound_email_to_crm(
 
 async def send_unsubscribe_to_crm(
     email: str,
+    entity_id: str | None = None,
     token: str | None = None,
 ) -> tuple[int | None, str]:
     """Notify CRM that a recipient has unsubscribed."""
@@ -130,7 +131,9 @@ async def send_unsubscribe_to_crm(
         return None, "Missing auth token"
 
     url = CONFIG.CRM_BASE_URL + CONFIG.CRM_UNSUBSCRIBE_ENDPOINT
-    body = {"email": email}
+    body: dict = {"email": email}
+    if entity_id:
+        body["entityId"] = entity_id
     headers = _build_headers(token)
 
     start = time.perf_counter()
@@ -140,8 +143,8 @@ async def send_unsubscribe_to_crm(
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
         logger.error(
-            "crm_unsubscribe request_exception email=%s duration_ms=%d error=%r",
-            email, duration_ms, e,
+            "crm_unsubscribe request_exception email=%s entity_id=%s duration_ms=%d error=%r",
+            email, entity_id, duration_ms, e,
         )
         return None, str(e)
 
@@ -149,13 +152,13 @@ async def send_unsubscribe_to_crm(
 
     if 200 <= resp.status_code < 300:
         logger.info(
-            "crm_unsubscribe ok email=%s status=%s duration_ms=%d",
-            email, resp.status_code, duration_ms,
+            "crm_unsubscribe ok email=%s entity_id=%s status=%s duration_ms=%d",
+            email, entity_id, resp.status_code, duration_ms,
         )
     else:
         logger.error(
-            "crm_unsubscribe bad_status email=%s status=%s duration_ms=%d body=%s",
-            email, resp.status_code, duration_ms, resp.text[:500],
+            "crm_unsubscribe bad_status email=%s entity_id=%s status=%s duration_ms=%d body=%s",
+            email, entity_id, resp.status_code, duration_ms, resp.text[:500],
         )
 
     return resp.status_code, resp.text

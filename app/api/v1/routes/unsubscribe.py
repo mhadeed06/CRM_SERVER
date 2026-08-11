@@ -63,25 +63,29 @@ async def _process(token: str) -> tuple[bool, str]:
     Shared logic for GET + POST. Returns (ok, email_or_error).
     Never raises — every failure returns ok=False.
     """
-    email = verify_token(token)
-    if not email:
+    decoded = verify_token(token)
+    if not decoded:
         return False, "invalid_token"
+    email = decoded["email"]
+    entity_id = decoded.get("entity_id")
 
     start = time.perf_counter()
     auth_token = await get_auth_token()
-    status, body = await send_unsubscribe_to_crm(email, token=auth_token)
+    status, body = await send_unsubscribe_to_crm(
+        email, entity_id=entity_id, token=auth_token,
+    )
     duration_ms = int((time.perf_counter() - start) * 1000)
 
     if status and 200 <= status < 300:
         logger.info(
-            "unsubscribe processed email=%s status=%s duration_ms=%d",
-            email, status, duration_ms,
+            "unsubscribe processed email=%s entity_id=%s status=%s duration_ms=%d",
+            email, entity_id, status, duration_ms,
         )
         return True, email
 
     logger.error(
-        "unsubscribe crm_forward_failed email=%s status=%s duration_ms=%d body=%s",
-        email, status, duration_ms, (body or "")[:500],
+        "unsubscribe crm_forward_failed email=%s entity_id=%s status=%s duration_ms=%d body=%s",
+        email, entity_id, status, duration_ms, (body or "")[:500],
     )
     # We still tell the user they've been unsubscribed — we can't leave them
     # staring at an error page after a good-faith click. Ops must reconcile
