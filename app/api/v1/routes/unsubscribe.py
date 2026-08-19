@@ -11,6 +11,7 @@ unsubscribed, and return a small landing page (GET) or a bare 200 (POST).
 
 import logging
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
@@ -23,39 +24,12 @@ router = APIRouter(prefix="/unsubscribe", tags=["Unsubscribe"])
 logger = logging.getLogger(__name__)
 
 
-_SUCCESS_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Unsubscribed</title>
-<style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-         max-width: 480px; margin: 80px auto; padding: 24px; color: #222; }
-  p  { line-height: 1.55; }
-</style>
-</head>
-<body>
-  <p>You have been unsubscribed.</p>
-</body>
-</html>
-"""
-
-_INVALID_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Unsubscribe link invalid</title>
-<style>
-  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-         max-width: 480px; margin: 80px auto; padding: 24px; color: #222; }
-  p  { line-height: 1.55; }
-</style>
-</head>
-<body>
-  <p>This unsubscribe link is invalid.</p>
-</body>
-</html>
-"""
+# Landing pages served after an unsubscribe click. The success template is
+# the CRM-approved copy/design; the invalid template matches its styling.
+# Loaded once at import time — no per-request disk I/O.
+_TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "templates"
+_SUCCESS_HTML = (_TEMPLATE_DIR / "unsubscribe_success.html").read_text(encoding="utf-8")
+_INVALID_HTML = (_TEMPLATE_DIR / "unsubscribe_invalid.html").read_text(encoding="utf-8")
 
 
 async def _process(token: str) -> tuple[bool, str]:
