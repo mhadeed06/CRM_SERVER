@@ -134,7 +134,13 @@ async def send_unsubscribe_to_crm(
     url = CONFIG.CRM_BASE_URL + CONFIG.CRM_UNSUBSCRIBE_ENDPOINT
     body: dict = {"email": email}
     if entity_id:
-        body["entityId"] = entity_id
+        # CRM's DTO strictly types entityId as a number. We store it internally
+        # as a string (JWT payloads normalize to str), but must serialize as int
+        # here or their JSON deserializer silently drops downstream fields.
+        try:
+            body["entityId"] = int(entity_id)
+        except (TypeError, ValueError):
+            body["entityId"] = entity_id
     if thread_id is not None:
         body["threadId"] = thread_id
     headers = _build_headers(token)
