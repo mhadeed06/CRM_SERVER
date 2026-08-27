@@ -227,6 +227,18 @@ async def events(request: Request):
 
     ip, useragent = _extract_ip_ua(ses_event, ses_event_type)
     url = ses_event.get("click", {}).get("link", "") if ses_event_type == "Click" else ""
+
+    # SES click-tracking wraps every <a href> in the email — including the
+    # unsubscribe link — so clicking it fires a Click event. That click is
+    # not a real engagement signal (the recipient is opting OUT), so we drop
+    # it here instead of forwarding to CRM.
+    if crm_event_type == "click" and "/api/v1/unsubscribe" in url:
+        logger.info(
+            "ses_event skipped reason=unsubscribe_click email=%s thread_id=%s message_id=%s url=%s",
+            recipient_email, thread_id_raw, message_id_raw, url,
+        )
+        return Response(status_code=200)
+
     reason = _extract_reason(ses_event, ses_event_type)
     bounce_classification = (
         _map_bounce_classification(ses_event.get("bounce", {}).get("bounceType", ""))
