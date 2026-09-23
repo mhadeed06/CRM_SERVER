@@ -26,6 +26,7 @@ import time
 import urllib.request
 from email.parser import BytesParser
 from email.policy import default as email_default_policy
+from email.utils import getaddresses
 
 import boto3
 from botocore.exceptions import ClientError
@@ -439,6 +440,31 @@ def _extract_from_email(from_header):
     return from_header.strip()
 
 
+def _extract_addresses(header_value):
+    """
+    Parse an address-list header (Cc, To) into bare email addresses.
+
+    Handles the shapes a real reply produces — `"Name" <a@x.com>, b@y.com` —
+    and folded headers spanning multiple lines. Duplicates are dropped
+    case-insensitively while keeping the order the sender wrote them in.
+    Returns [] for a missing or unparseable header; never raises.
+    """
+    if not header_value:
+        return []
+    result = []
+    seen = set()
+    for _name, addr in getaddresses([str(header_value)]):
+        addr = (addr or "").strip()
+        if not addr or "@" not in addr:
+            continue
+        key = addr.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(addr)
+    return result
+
+
 @router.post("/inbound")
 async def inbound(request: Request):
     """
@@ -518,6 +544,10 @@ async def inbound(request: Request):
     subject = str(msg.get("Subject") or "")
     from_email = _extract_from_email(from_header)
 
+    # CC is only present when the sender used "Reply All" — a plain reply has
+    # no Cc header at all, so an empty list is the normal case, not an error.
+    cc_emails = _extract_addresses(msg.get("Cc"))
+
     raw_text, raw_html = _extract_body_parts(msg)
     text_body = strip_quoted_text(raw_text) if raw_text else None
     html_body = strip_quoted_html(raw_html) if raw_html else None
@@ -531,8 +561,8 @@ async def inbound(request: Request):
         )
 
     logger.info(
-        "ses_inbound received from=%s to=%s message_id=%s in_reply_to=%s text_len=%d html_len=%d",
-        from_email, to_email, smtp_message_id, in_reply_to,
+        "ses_inbound received from=%s to=%s cc=%s message_id=%s in_reply_to=%s text_len=%d html_len=%d",
+        from_email, to_email, cc_emails, smtp_message_id, in_reply_to,
         len(text_body) if text_body else 0,
         len(html_body) if html_body else 0,
     )
@@ -552,6 +582,10 @@ async def inbound(request: Request):
         "inReplyTo": in_reply_to,
         "fromEmail": from_email,
         "toEmail": to_email,
+        # CRM currently types this as a string, so send comma-separated and
+        # empty when there was no Cc. Switch to `cc_emails` (the list) once
+        # CRM has deployed the array version of the field.
+        "ccEmail": ", ".join(cc_emails),
         "subject": subject,
         "textBody": text_body,
         "htmlBody": html_body,
