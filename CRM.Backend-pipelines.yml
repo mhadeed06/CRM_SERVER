@@ -10,7 +10,7 @@ trigger:
       - 'CRM.Backend-pipelines.yml'
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: ubuntu-20.04
 
 variables:
   # ACR repo inside your registry
