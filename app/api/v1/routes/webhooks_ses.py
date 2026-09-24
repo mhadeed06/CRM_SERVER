@@ -351,31 +351,84 @@ def _get_s3_client():
     return _s3_client
 
 
-def _fetch_raw_mime_from_s3(message_id):
+def _s3_candidates(ses_message, message_id):
+    """
+    Ordered (bucket, key) locations to try for this message's raw MIME.
+
+    Each client domain gets its own S3 prefix (`crm-replies/`,
+    `practicescribe/replies/`, ...), so a single configured prefix can only
+    ever serve one domain at a time. Instead we try, in order:
+
+    1. The exact location SES reported in the notification. Present when the
+       S3 action itself published to SNS — needs no configuration at all and
+       is correct for any client, including ones added after deploy.
+    2. Each prefix in AWS_SES_INBOUND_PREFIX, which accepts a comma-separated
+       list. Used when a separate SNS action published the notification and
+       the payload therefore carries no object key.
+    3. The bare message id, for a receipt rule that stores with no prefix.
+
+    Duplicates are dropped so a miss is never retried against the same key.
+    """
+    default_bucket = CONFIG.AWS_SES_INBOUND_BUCKET
+    candidates = []
+    seen = set()
+
+    def add(bucket, key):
+        if not bucket or not key:
+            return
+        if (bucket, key) in seen:
+            return
+        seen.add((bucket, key))
+        candidates.append((bucket, key))
+
+    action = (ses_message.get("receipt") or {}).get("action") or {}
+    add(action.get("bucketName") or default_bucket, action.get("objectKey"))
+
+    for prefix in (CONFIG.AWS_SES_INBOUND_PREFIX or "").split(","):
+        prefix = prefix.strip()
+        if prefix:
+            add(default_bucket, prefix + message_id)
+
+    add(default_bucket, message_id)
+    return candidates
+
+
+def _fetch_raw_mime_from_s3(ses_message, message_id):
     """
     Fetch the raw MIME email SES stored in S3. Returns bytes on success,
     None on any error (never raises — inbound path must always return 200).
     """
-    bucket = CONFIG.AWS_SES_INBOUND_BUCKET
-    prefix = CONFIG.AWS_SES_INBOUND_PREFIX or ""
-
-    if not bucket or not message_id:
+    if not CONFIG.AWS_SES_INBOUND_BUCKET or not message_id:
         logger.error(
             "ses_inbound s3_config_missing bucket=%r message_id=%r",
-            bucket, message_id,
+            CONFIG.AWS_SES_INBOUND_BUCKET, message_id,
         )
         return None
 
-    key = prefix + message_id if prefix else message_id
-    try:
-        resp = _get_s3_client().get_object(Bucket=bucket, Key=key)
+    attempted = []
+    for bucket, key in _s3_candidates(ses_message, message_id):
+        try:
+            resp = _get_s3_client().get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            # A miss on one candidate is expected — another client's prefix
+            # simply won't hold this message. Only the final failure is an
+            # error worth alerting on.
+            attempted.append(f"{bucket}/{key}")
+            code = e.response.get("Error", {}).get("Code", "")
+            if code not in ("NoSuchKey", "404", "AccessDenied"):
+                logger.warning(
+                    "ses_inbound s3_fetch_error bucket=%s key=%s error=%r",
+                    bucket, key, e,
+                )
+            continue
+        logger.info("ses_inbound s3_fetch_ok bucket=%s key=%s", bucket, key)
         return resp["Body"].read()
-    except ClientError as e:
-        logger.error(
-            "ses_inbound s3_fetch_failed bucket=%s key=%s error=%r",
-            bucket, key, e,
-        )
-        return None
+
+    logger.error(
+        "ses_inbound s3_fetch_failed message_id=%s tried=%s",
+        message_id, attempted,
+    )
+    return None
 
 
 def _normalize_msg_id(mid):
@@ -523,7 +576,7 @@ async def inbound(request: Request):
     # The SNS notification carries only metadata (no raw email content) —
     # SES stores the raw MIME in S3. Fetch it using the SES message ID.
     raw_bytes = await asyncio.get_event_loop().run_in_executor(
-        None, _fetch_raw_mime_from_s3, ses_internal_id
+        None, _fetch_raw_mime_from_s3, ses_message, ses_internal_id
     )
     if not raw_bytes:
         logger.error(
